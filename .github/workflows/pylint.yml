@@ -1,0 +1,138 @@
+import tkinter as tk
+from tkinter import filedialog, messagebox
+import sqlite3
+import pandas as pd
+
+class DataManagerApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("数据管理工具")
+        self.root.geometry("600x600")
+        
+        self.conn = sqlite3.connect("data_manager.db")
+        self.cursor = self.conn.cursor()
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS data (id INTEGER PRIMARY KEY, value TEXT UNIQUE)")
+        self.conn.commit()
+        
+        self.entry = tk.Entry(root, width=40)
+        self.entry.pack(pady=10)
+        
+        self.add_button = tk.Button(root, text="添加数据", command=self.add_data)
+        self.add_button.pack(pady=5)
+        
+        self.import_button = tk.Button(root, text="导入Excel/CSV", command=self.import_file)
+        self.import_button.pack(pady=5)
+        
+        self.export_button = tk.Button(root, text="导出全部数据", command=self.export_file)
+        self.export_button.pack(pady=5)
+        
+        self.export_search_button = tk.Button(root, text="导出查询结果", command=self.export_search_results)
+        self.export_search_button.pack(pady=5)
+        
+        self.search_button = tk.Button(root, text="查询数据", command=self.search_data)
+        self.search_button.pack(pady=5)
+        
+        self.delete_button = tk.Button(root, text="删除数据", command=self.delete_data)
+        self.delete_button.pack(pady=5)
+        
+        self.delete_all_button = tk.Button(root, text="批量删除选中", command=self.delete_selected)
+        self.delete_all_button.pack(pady=5)
+        
+        self.listbox = tk.Listbox(root, width=60, height=15, selectmode=tk.MULTIPLE)
+        self.listbox.pack(pady=10)
+        
+        self.load_data()
+    
+    def add_data(self):
+        value = self.entry.get()
+        if value:
+            try:
+                self.cursor.execute("INSERT INTO data (value) VALUES (?)", (value,))
+                self.conn.commit()
+                self.listbox.insert(tk.END, value)
+                self.entry.delete(0, tk.END)
+            except sqlite3.IntegrityError:
+                messagebox.showerror("错误", "数据已存在，无法重复添加！")
+    
+    def load_data(self):
+        self.listbox.delete(0, tk.END)
+        self.cursor.execute("SELECT value FROM data")
+        for row in self.cursor.fetchall():
+            self.listbox.insert(tk.END, row[0])
+    
+    def import_file(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Excel files", "*.xlsx"), ("CSV files", "*.csv")])
+        if file_path:
+            try:
+                df = pd.read_csv(file_path) if file_path.endswith(".csv") else pd.read_excel(file_path)
+                for value in df.iloc[:, 0]:
+                    try:
+                        self.cursor.execute("INSERT INTO data (value) VALUES (?)", (str(value),))
+                        self.conn.commit()
+                    except sqlite3.IntegrityError:
+                        pass
+                self.load_data()
+                messagebox.showinfo("成功", "数据导入完成！")
+            except Exception as e:
+                messagebox.showerror("错误", f"导入失败: {e}")
+    
+    def export_file(self):
+        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")])
+        if file_path:
+            try:
+                self.cursor.execute("SELECT value FROM data")
+                df = pd.DataFrame([row[0] for row in self.cursor.fetchall()], columns=["数据"])
+                df.to_excel(file_path, index=False)
+                messagebox.showinfo("成功", "数据导出完成！")
+            except Exception as e:
+                messagebox.showerror("错误", f"导出失败: {e}")
+    
+    def export_search_results(self):
+        file_path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel files", "*.xlsx")])
+        if file_path:
+            try:
+                selected_items = self.listbox.get(0, tk.END)
+                df = pd.DataFrame(list(selected_items), columns=["查询结果"])
+                df.to_excel(file_path, index=False)
+                messagebox.showinfo("成功", "查询结果已导出！")
+            except Exception as e:
+                messagebox.showerror("错误", f"导出失败: {e}")
+    
+    def search_data(self):
+        search_value = self.entry.get()
+        if search_value:
+            self.cursor.execute("SELECT value FROM data WHERE value LIKE ?", (f"%{search_value}%",))
+            results = self.cursor.fetchall()
+            self.listbox.delete(0, tk.END)
+            for row in results:
+                self.listbox.insert(tk.END, row[0])
+            if not results:
+                messagebox.showinfo("结果", "未找到匹配的数据")
+    
+    def delete_data(self):
+        selected = self.listbox.curselection()
+        if selected:
+            value = self.listbox.get(selected[0])
+            self.cursor.execute("DELETE FROM data WHERE value = ?", (value,))
+            self.conn.commit()
+            self.load_data()
+            messagebox.showinfo("成功", "数据已删除！")
+        else:
+            messagebox.showerror("错误", "请选择要删除的数据！")
+    
+    def delete_selected(self):
+        selected_indices = self.listbox.curselection()
+        if selected_indices:
+            selected_values = [self.listbox.get(i) for i in selected_indices]
+            for value in selected_values:
+                self.cursor.execute("DELETE FROM data WHERE value = ?", (value,))
+            self.conn.commit()
+            self.load_data()
+            messagebox.showinfo("成功", "选中的数据已删除！")
+        else:
+            messagebox.showerror("错误", "请选择要删除的数据！")
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = DataManagerApp(root)
+    root.mainloop()
